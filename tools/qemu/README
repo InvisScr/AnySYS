@@ -1,0 +1,79 @@
+Run AnySYS under real DOS, on QEMU, against test floppies.
+
+    tools/qemu/run.sh                  every case
+    tools/qemu/run.sh ms622-used       just the named case(s)
+    EXE=/path/OTHER.EXE tools/qemu/run.sh     test a different build
+
+Build AnySYS first (wmake -h -f makefile.wat). Each case prints one line
+per check and PASS or FAIL; the script exits non-zero if any case failed.
+A full run takes about a minute.
+
+Do not use DOSBox for any of this. It accepts INT 26h writes to the boot
+sector of an image-mounted drive without saving them, and AnySYS then
+reports success on a disk it did not change.
+
+Cases
+-----
+toshiba-fresh
+    Blank 720K floppy, Toshiba MS-DOS 2.11 kernels with /OEM left on AUTO,
+    Toshiba's own boot sector as /BOOTSRC. The result must match Toshiba's
+    original disk: root entries 0 and 1 (name, start cluster, size), the
+    BPB, and the boot code from its jump target (24h) on. It cannot be
+    boot-tested - Toshiba's original does not boot on QEMU either.
+
+toshiba-used
+    The used floppy (below), Toshiba kernels. Every file must survive the
+    clusters being cleared for TBIOS.SYS, which must start at cluster 2.
+
+ms622-used
+    The used floppy, MS-DOS 6.22 kernels and boot sector. Same checks, with
+    a 40-cluster IO.SYS that cuts through directories and a fragmented
+    file. Then the floppy is booted on its own and must reach DOS and list
+    the relocated A:\SUB - the loader found IO.SYS at cluster 2.
+
+The used floppy
+---------------
+fatcheck.py builds it identically every run (fixed-seed data) with every
+low cluster taken:
+
+    2 HELLO.TXT   3 SUB   4-6 SUB\F1.BIN   7 SUB\INNER   8-10 F2.BIN
+    11-14 + 19-24 C.BIN (fragmented around B.BIN)   15-18 B.BIN   25-54 BIG.BIN
+
+So clearing room at cluster 2 has to move a file, a directory (its "."
+and its child's ".."), a nested directory, and a chain that is cut part
+way through.
+
+What it needs
+-------------
+qemu-system-i386, mtools, dosfstools, python3, and two reference disks
+from "HDD for AnyDOS" (override with REF622= and TOSHREF=):
+
+    C: boot    MS-DOS 6.22 hard disk image - boots DOS and runs AnySYS;
+               also supplies the 6.22 kernels and boot sector
+    Toshiba    MS-DOS 2.11 T1100 Plus floppy - supplies TBIOS.SYS,
+               TDOS.SYS and its boot sector
+
+Nothing is kept in this directory but the scripts; kernels and templates
+are extracted from the reference disks each run. The reference images are
+only ever read - C: is a copy.
+
+How a run works
+---------------
+The floppy under test is A:. AUTOEXEC.BAT on C: runs CTTY COM1 before
+AnySYS, which moves the console - stdout and stderr - onto the serial
+port, and QEMU writes that to out/<case>/serial.log. COMMAND.COM can only
+redirect stdout, and AnySYS reports every failure on stderr, so without
+CTTY a failed run leaves nothing behind. A seven-byte QUIT.COM then writes
+to QEMU's isa-debug-exit port: QEMU exit 1 is that clean stop, 124 means
+the timeout (TIMEOUT=, default 120 s) fired instead.
+
+Artifacts stay in out/<case>/: floppy.img (inspect with mdir, mshowfat,
+fsck.fat -n), serial.log, qemu.log, and for ms622-used boot/serial.log
+from the boot test.
+
+fsck.fat and old boot sectors
+-----------------------------
+fsck.fat reads a volume label at 2Bh whatever the boot sector is, and a
+pre-DOS 4 boot sector keeps code there - Toshiba's untouched disk draws the
+same complaint. fatcheck.py excuses exactly that note when the boot sector
+has no 29h extended-BPB signature, and says so on the fsck line.

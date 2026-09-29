@@ -1,0 +1,8 @@
+# Build output - rebuild with: wmake -h -f makefile.wat
+AnySYS.exe
+*.o
+*.obj
+*.err
+
+# QEMU test harness artifacts
+tools/qemu/out/

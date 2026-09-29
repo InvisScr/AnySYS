@@ -1,0 +1,12 @@
+AnySYS is licensed under the GNU General Public License, version 2 or later.
+
+The full GPL version 2 text is available from the Free Software Foundation:
+
+    https://www.gnu.org/licenses/old-licenses/gpl-2.0.txt
+
+Source files in this tree use SPDX identifiers:
+
+    SPDX-License-Identifier: GPL-2.0-or-later
+
+Distributors should include the complete GPL-2.0 license text alongside
+binary or source distributions.
