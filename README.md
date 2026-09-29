@@ -110,4 +110,4 @@ Behavioral targets and technical references used while writing original code:
 ## License
 
 AnySYS is offered under the GNU General Public License, version 2 or later.
-See `COPYING`.
+The full license text is in `LICENSE`; see `COPYING` for the summary.
