@@ -81,7 +81,8 @@ typedef enum {
     OEM_PC,
     OEM_DR,
     OEM_EDR,
-    OEM_TOSHIBA
+    OEM_TOSHIBA,
+    OEM_ME
 } OemKind;
 
 typedef struct {
@@ -124,7 +125,13 @@ static const OemProfile profiles[] = {
     /* Toshiba's MS-DOS 2.11 OEM build (T1100 Plus) renames the kernel
        pair. Its boot sector expects TBIOS.SYS and TDOS.SYS in the first
        two root entries, the same layout raw placement gives IO.SYS. */
-    { OEM_TOSHIBA, "TOSHIBA", "TBIOS.SYS", "TDOS.SYS", "COMMAND.COM", 0x0070 }
+    { OEM_TOSHIBA, "TOSHIBA", "TBIOS.SYS", "TDOS.SYS", "COMMAND.COM", 0x0070 },
+    /* MS-DOS 8.0 (Windows Me) has the whole kernel in IO.SYS, and its
+       MSDOS.SYS is an optional text settings file - a disk with IO.SYS
+       and COMMAND.COM alone boots. Its boot sector finds IO.SYS by name,
+       so a plain copy is enough. Last, so AUTO only lands here when
+       there is no MSDOS.SYS for the MS profile to take. */
+    { OEM_ME,  "ME",  "IO.SYS",      NULL,        "COMMAND.COM", 0x0070 }
 };
 
 static byte copy_buffer[8192];
@@ -251,6 +258,8 @@ static int parse_oem(const char *value, OemKind *kind)
         *kind = OEM_EDR;
     } else if (streqi(value, "TOSHIBA") || streqi(value, "TOSH")) {
         *kind = OEM_TOSHIBA;
+    } else if (streqi(value, "ME")) {
+        *kind = OEM_ME;
     } else {
         return 0;
     }
@@ -428,7 +437,7 @@ static void print_usage(void)
     puts("  ANYSYS drive: /RESTORBS:file");
     puts("");
     puts("Options:");
-    puts("  /OEM[:AUTO|FD|MS|W9X|PC|DR|EDR|TOSHIBA]");
+    puts("  /OEM[:AUTO|FD|MS|W9X|PC|DR|EDR|TOSHIBA|ME]");
     puts("                                   Select DOS family.");
     puts("  /BOOTSRC:file                    512-byte boot sector template.");
     puts("  /BOOTONLY                        Update boot sector only.");

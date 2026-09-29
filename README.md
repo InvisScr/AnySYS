@@ -20,9 +20,10 @@ family you want to install.
 This is a first working skeleton. It includes:
 
 - OEM profiles for FreeDOS, MS/Win9x DOS, PC-DOS, DR-DOS-style file names,
-  and Toshiba's MS-DOS 2.11 OEM build (`TBIOS.SYS`/`TDOS.SYS`).
+  Toshiba's MS-DOS 2.11 OEM build (`TBIOS.SYS`/`TDOS.SYS`), and MS-DOS 8.0
+  (Windows Me), whose kernel is `IO.SYS` alone.
 - `/OEM:AUTO`, `/OEM:FD`, `/OEM:MS`, `/OEM:W9X`, `/OEM:PC`, `/OEM:DR`,
-  `/OEM:EDR`, `/OEM:TOSHIBA`.
+  `/OEM:EDR`, `/OEM:TOSHIBA`, `/OEM:ME`.
 - `/BOOTONLY`, `/UPDATE`, `/DRYRUN`, `/VERBOSE`.
 - `/K:name`, `/SKFN:name`, `/SCFN:name`.
 - `/BOOTSRC:file`, `/BACKUPBS:file`, `/DUMPBS:file`, `/RESTORBS:file`.
