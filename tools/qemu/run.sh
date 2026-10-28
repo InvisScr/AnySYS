@@ -23,7 +23,7 @@ here=$(cd "$(dirname "$0")" && pwd)
 root=$(cd "$here/../.." && pwd)
 out="$here/out"
 
-REFS="/mnt/UserData/! User Data 2/Prg N Elec/2026 Other/HDD for AnyDOS"
+REFS="/mnt/Games/-User-Data-3/2026 Other/HDD for AnyDOS"
 REF622=${REF622:-"$REFS/Done2/Microsoft MS-DOS 6.22 Plus Enhanced Tools.img"}
 TOSHREF=${TOSHREF:-"$REFS/Done/Microsoft MS-DOS 2.11 [Toshiba T1100 Plus OEM] (3.5-720k)/disk01.img"}
 EXE=${EXE:-"$root/AnySYS.exe"}
