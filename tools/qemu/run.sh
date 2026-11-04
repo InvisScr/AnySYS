@@ -14,6 +14,10 @@
 #                  way of cluster 2 must all survive
 #   ms622-used     used floppy, MS-DOS 6.22 kernels + boot template; as
 #                  above, then the floppy is booted and must reach DOS
+#   sys-drive      ANYSYS C: A: run from C:\SRCT; the source must be C:'s
+#                  root (6.22), not its current directory (Toshiba)
+#   sys-default    ANYSYS A: run from C:\SRCT; the source must be the
+#                  root of the boot drive, as with SYS
 #
 # Everything lands in tools/qemu/out/<case>/: the floppy, serial.log (all
 # AnySYS output, stderr included), and qemu.log.
@@ -28,7 +32,7 @@ REF622=${REF622:-"$REFS/Done2/Microsoft MS-DOS 6.22 Plus Enhanced Tools.img"}
 TOSHREF=${TOSHREF:-"$REFS/Done/Microsoft MS-DOS 2.11 [Toshiba T1100 Plus OEM] (3.5-720k)/disk01.img"}
 EXE=${EXE:-"$root/AnySYS.exe"}
 TIMEOUT=${TIMEOUT:-120}
-CASES=${*:-"toshiba-fresh toshiba-used ms622-used"}
+CASES=${*:-"toshiba-fresh toshiba-used ms622-used sys-drive sys-default"}
 
 for f in "$EXE" "$REF622" "$TOSHREF"; do
     [ -f "$f" ] || { echo "missing: $f" >&2; [ "$f" = "$EXE" ] && echo "build first: wmake -h -f makefile.wat" >&2; exit 2; }
@@ -93,15 +97,17 @@ qemu_run() {
 # stdout, and AnySYS reports every failure on stderr, so without this an
 # error leaves nothing behind but a missing "DONE". CRLF throughout:
 # COMMAND.COM does not accept bare LF line endings.
+# An optional second argument runs first, before AnySYS.
 autoexec() {
-    printf '@ECHO OFF\r\nCTTY COM1\r\n%s\r\nIF ERRORLEVEL 1 ECHO ANYSYS FAILED\r\nECHO ANYSYS DONE\r\nC:\\QUIT.COM\r\n' "$1"
+    printf '@ECHO OFF\r\nCTTY COM1\r\n%s\r\n%s\r\nIF ERRORLEVEL 1 ECHO ANYSYS FAILED\r\nECHO ANYSYS DONE\r\nC:\\QUIT.COM\r\n' "${2:-REM}" "$1"
 }
 
-# anysys CASE FLOPPY ARGS: run AnySYS on a copy of FLOPPY as A:.
+# anysys CASE FLOPPY ARGS [BEFORE]: run AnySYS on a copy of FLOPPY as A:,
+# after the DOS command BEFORE if one is given.
 anysys() {
     dir="$out/$1"; mkdir -p "$dir"
     cp "$out/$2" "$dir/floppy.img"
-    autoexec "C:\\ANYSYS $3 A: /VERBOSE" > "$dir/AUTOEXEC.BAT"
+    autoexec "C:\\ANYSYS $3 A: /VERBOSE" "$4" > "$dir/AUTOEXEC.BAT"
     mcopy -o -i "$C" "$dir/AUTOEXEC.BAT" ::/
     if qemu_run "$dir" -boot c \
         -drive file="$out/boot.img",format=raw,index=0,media=disk \
@@ -150,6 +156,23 @@ for case in $CASES; do
         [ $ok = 1 ] && { python3 "$here/fatcheck.py" verify "$out/$case/floppy.img" \
             "$out/files" "$out/src/MS" IO.SYS MSDOS.SYS || ok=0; }
         [ $ok = 1 ] && { boots "$case" || ok=0; }
+        ;;
+    sys-drive)
+        anysys "$case" used.img 'C:' 'CD \SRCT' || ok=0
+        [ $ok = 1 ] && { python3 "$here/fatcheck.py" verify "$out/$case/floppy.img" \
+            "$out/files" "$out/src/MS" IO.SYS MSDOS.SYS || ok=0; }
+        ;;
+    sys-default)
+        anysys "$case" used.img '' 'CD \SRCT' || ok=0
+        if [ $ok = 1 ]; then
+            if tr -d '\r' < "$out/$case/serial.log" | grep -qx 'Source: C:\\'; then
+                echo "ok    source is the boot drive's root, C:\\"
+            else
+                echo "FAIL  source is not C:\\"; ok=0
+            fi
+        fi
+        [ $ok = 1 ] && { python3 "$here/fatcheck.py" verify "$out/$case/floppy.img" \
+            "$out/files" "$out/src/MS" IO.SYS MSDOS.SYS || ok=0; }
         ;;
     *)
         echo "unknown case: $case" >&2; ok=0

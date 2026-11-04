@@ -18,7 +18,7 @@ wmake -h -f makefile.wat          # or: wmake -h -f makefile.wat clean
 
 ## Tests
 
-**`tools/qemu/run.sh`** - run after any change to raw placement, the boot-sector merge or sector I/O; expect `3 passed, 0 failed`. It boots real MS-DOS 6.22 in QEMU from a copy of the reference disk in `HDD for AnyDOS/` (outside this tree; override with `REF622=` / `TOSHREF=`), runs AnySYS against generated floppies, and checks kernel placement at cluster 2, survival of every relocated file, `fsck.fat`, a byte match with Toshiba's original disk, and that the 6.22 result boots. `EXE=` tests another build; `tools/qemu/README` explains each case. AUTOEXEC runs `CTTY COM1` so AnySYS's stderr reaches `out/<case>/serial.log` - COMMAND.COM cannot redirect stderr, and every AnySYS failure is reported there.
+**`tools/qemu/run.sh`** - run after any change to raw placement, the boot-sector merge or sector I/O; expect `5 passed, 0 failed`. It boots real MS-DOS 6.22 in QEMU from a copy of the reference disk in `HDD for AnyDOS/` (outside this tree; override with `REF622=` / `TOSHREF=`), runs AnySYS against generated floppies, and checks kernel placement at cluster 2, survival of every relocated file, `fsck.fat`, a byte match with Toshiba's original disk, that the 6.22 result boots, and that the source defaults match `SYS` (a bare drive is its root; no source is the boot drive's root). `EXE=` tests another build; `tools/qemu/README` explains each case. AUTOEXEC runs `CTTY COM1` so AnySYS's stderr reaches `out/<case>/serial.log` - COMMAND.COM cannot redirect stderr, and every AnySYS failure is reported there.
 
 **DOSBox is not a valid test bed**: it accepts INT 26h boot-sector writes on imgmounted drives without saving them, and AnySYS then reports success.
 

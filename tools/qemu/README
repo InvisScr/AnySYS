@@ -31,6 +31,17 @@ ms622-used
     file. Then the floppy is booted on its own and must reach DOS and list
     the relocated A:\SUB - the loader found IO.SYS at cluster 2.
 
+sys-drive
+    ANYSYS C: A: with C:\SRCT (the Toshiba kernels) as C:'s current
+    directory. As with SYS, a bare drive means its root, so the 6.22
+    kernels in C:\ must be installed, not Toshiba's. Same checks as
+    ms622-used, without the boot.
+
+sys-default
+    ANYSYS A: with no source, again from C:\SRCT. As with SYS, the source
+    must be the root of the boot drive: the log must show "Source: C:\"
+    and the 6.22 kernels must be installed.
+
 The used floppy
 ---------------
 fatcheck.py builds it identically every run (fixed-seed data) with every

@@ -8,7 +8,9 @@ after any change to raw placement, the boot-sector merge or sector I/O.
 The automated cases cover what the manual tests below do not: Toshiba
 MS-DOS 2.11 on a blank 720K floppy (byte match with Toshiba's original disk),
 Toshiba 2.11 and MS-DOS 6.22 on a floppy whose low clusters are all in use
-(every file must survive being moved), and the 6.22 result booting. See
+(every file must survive being moved), the 6.22 result booting, and the
+source defaults matching `SYS` (`ANYSYS C: A:` and `ANYSYS A:` both take the
+system files from the root of C:, not its current directory). See
 `tools/qemu/README` for each case.
 
 This file records manual compatibility tests. A `+` means the target booted

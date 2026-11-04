@@ -120,7 +120,10 @@ ANYSYS drive: /RESTORBS:file
 ```
 
 The source is a drive or a folder holding the system files and COMMAND.COM.
-Left out, it is the current directory. With `/OEM` left on `AUTO`, AnySYS
+As with `SYS`, a drive on its own means its root (`A:` is `A:\`), and a
+source left out means the root of the drive DOS booted from (DOS 4.0 and
+later; earlier DOS versions report no boot drive, so the current drive's
+root is used, as their `SYS` did). With `/OEM` left on `AUTO`, AnySYS
 picks the DOS family from the system files it finds there.
 
 The same form as `SYS`:

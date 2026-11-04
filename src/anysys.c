@@ -420,11 +420,56 @@ static int parse_args(int argc, char **argv, Options *opt)
         }
     }
 
-    if (!opt->have_source) {
-        strcpy(opt->source, ".");
+    /* A bare drive means its root, as with SYS A: C:. Left as "A:" it
+       would be A:'s current directory, which need not be the root. */
+    if (opt->have_source && is_drive_spec(opt->source)) {
+        opt->source[2] = '\\';
+        opt->source[3] = '\0';
     }
 
     return 1;
+}
+
+/* With no source given, SYS takes the system files from the root of the
+   drive DOS booted from. DOS 4.0 and later report it (INT 21h AX=3305h);
+   earlier versions have no such call, and their SYS used the current
+   drive, so that is the fallback. */
+static void set_default_source(Options *opt)
+{
+    unsigned drive_num = 0;
+
+#if defined(__WATCOMC__) && (defined(__DOS__) || defined(MSDOS) || defined(__MSDOS__))
+    unsigned major = 0;
+    unsigned boot = 0;
+
+    _asm {
+        mov ah, 30h
+        int 21h
+        xor ah, ah
+        mov major, ax
+    }
+    if (major >= 4) {
+        _asm {
+            mov ax, 3305h
+            int 21h
+            xor dh, dh
+            mov boot, dx
+        }
+        drive_num = boot;           /* 1 = A: */
+    }
+    if (drive_num < 1 || drive_num > 26) {
+        _dos_getdrive(&drive_num);  /* 1 = A: */
+    }
+#endif
+
+    if (drive_num < 1 || drive_num > 26) {
+        strcpy(opt->source, ".");
+        return;
+    }
+    opt->source[0] = (char)('A' + drive_num - 1);
+    opt->source[1] = ':';
+    opt->source[2] = '\\';
+    opt->source[3] = '\0';
 }
 
 static void print_usage(void)
@@ -2351,6 +2396,10 @@ int main(int argc, char **argv)
         fprintf(stderr, "ANYSYS: target drive is required\n");
         puts("Use ANYSYS /? for help.");
         return 1;
+    }
+
+    if (!opt.have_source) {
+        set_default_source(&opt);
     }
 
     /* Before the first INT 25h/26h on the target; see dos_login_drive. */
