@@ -38,9 +38,11 @@ sys-drive
     ms622-used, without the boot.
 
 sys-default
-    ANYSYS A: with no source, again from C:\SRCT. As with SYS, the source
-    must be the root of the boot drive: the log must show "Source: C:\"
-    and the 6.22 kernels must be installed.
+    ANYSYS A: with no source, booted from C: (6.22) but with a second
+    floppy B: holding the Toshiba kernels as the current drive. As with
+    SYS, the source must be the current drive's root, not the boot
+    drive: the log must show "Source: B:\" and Toshiba's kernels must be
+    installed.
 
 sys-same
     ANYSYS A: A: on the used floppy with the 6.22 files already in its

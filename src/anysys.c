@@ -433,35 +433,17 @@ static int parse_args(int argc, char **argv, Options *opt)
 }
 
 /* With no source given, SYS takes the system files from the root of the
-   drive DOS booted from. DOS 4.0 and later report it (INT 21h AX=3305h);
-   earlier versions have no such call, and their SYS used the current
-   drive, so that is the fallback. */
+   current drive - not its current directory, and not the boot drive.
+   Checked under MS-DOS 4.01, 5.00 and 6.22 booted from C:: with an
+   empty floppy as the current drive, SYS B: asks for a system disk in
+   A:. (3.30's SYS takes no source at all and also copies from the
+   current drive.) */
 static void set_default_source(Options *opt)
 {
     unsigned drive_num = 0;
 
-#if defined(__WATCOMC__) && (defined(__DOS__) || defined(MSDOS) || defined(__MSDOS__))
-    unsigned major = 0;
-    unsigned boot = 0;
-
-    _asm {
-        mov ah, 30h
-        int 21h
-        xor ah, ah
-        mov major, ax
-    }
-    if (major >= 4) {
-        _asm {
-            mov ax, 3305h
-            int 21h
-            xor dh, dh
-            mov boot, dx
-        }
-        drive_num = boot;           /* 1 = A: */
-    }
-    if (drive_num < 1 || drive_num > 26) {
-        _dos_getdrive(&drive_num);  /* 1 = A: */
-    }
+#if defined(__DOS__) || defined(MSDOS) || defined(__MSDOS__)
+    _dos_getdrive(&drive_num);      /* 1 = A: */
 #endif
 
     if (drive_num < 1 || drive_num > 26) {

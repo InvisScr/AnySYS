@@ -16,8 +16,9 @@
 #                  above, then the floppy is booted and must reach DOS
 #   sys-drive      ANYSYS C: A: run from C:\SRCT; the source must be C:'s
 #                  root (6.22), not its current directory (Toshiba)
-#   sys-default    ANYSYS A: run from C:\SRCT; the source must be the
-#                  root of the boot drive, as with SYS
+#   sys-default    ANYSYS A: with B: (Toshiba kernels) as the current
+#                  drive; as with SYS, the source must be B:'s root, not
+#                  the boot drive C: (6.22)
 #   sys-same       ANYSYS A: A: on a used floppy whose root already holds
 #                  the 6.22 files, out of place; source and target are the
 #                  same root, then the floppy must boot
@@ -105,8 +106,9 @@ autoexec() {
     printf '@ECHO OFF\r\nCTTY COM1\r\n%s\r\n%s\r\nIF ERRORLEVEL 1 ECHO ANYSYS FAILED\r\nECHO ANYSYS DONE\r\nC:\\QUIT.COM\r\n' "${2:-REM}" "$1"
 }
 
-# anysys CASE FLOPPY ARGS [BEFORE]: run AnySYS on a copy of FLOPPY as A:,
-# after the DOS command BEFORE if one is given.
+# anysys CASE FLOPPY ARGS [BEFORE [BFLOPPY]]: run AnySYS on a copy of
+# FLOPPY as A:, after the DOS command BEFORE if one is given, with the
+# image BFLOPPY as B: if one is given.
 anysys() {
     dir="$out/$1"; mkdir -p "$dir"
     cp "$out/$2" "$dir/floppy.img"
@@ -114,7 +116,8 @@ anysys() {
     mcopy -o -i "$C" "$dir/AUTOEXEC.BAT" ::/
     if qemu_run "$dir" -boot c \
         -drive file="$out/boot.img",format=raw,index=0,media=disk \
-        -drive file="$dir/floppy.img",format=raw,if=floppy,index=0; then rc=0; else rc=$?; fi
+        -drive file="$dir/floppy.img",format=raw,if=floppy,index=0 \
+        ${5:+-drive file="$5",format=raw,if=floppy,index=1}; then rc=0; else rc=$?; fi
     tr -d '\r' < "$dir/serial.log" | grep -vE '^$|attrs ' | sed 's/^/    | /'
     [ $rc -eq 1 ] || { echo "    QEMU exit $rc (124 = timed out)"; return 1; }
     grep -q "ANYSYS DONE" "$dir/serial.log" && ! grep -q "ANYSYS FAILED" "$dir/serial.log"
@@ -166,16 +169,19 @@ for case in $CASES; do
             "$out/files" "$out/src/MS" IO.SYS MSDOS.SYS || ok=0; }
         ;;
     sys-default)
-        anysys "$case" used.img '' 'CD \SRCT' || ok=0
+        mkdir -p "$out/$case"
+        cp "$out/blank.img" "$out/$case/b.img"
+        mcopy -i "$out/$case/b.img" "$out"/src/T/* ::/
+        anysys "$case" used.img '' 'B:' "$out/$case/b.img" || ok=0
         if [ $ok = 1 ]; then
-            if tr -d '\r' < "$out/$case/serial.log" | grep -qx 'Source: C:\\'; then
-                echo "ok    source is the boot drive's root, C:\\"
+            if tr -d '\r' < "$out/$case/serial.log" | grep -qx 'Source: B:\\'; then
+                echo "ok    source is the current drive's root, B:\\"
             else
-                echo "FAIL  source is not C:\\"; ok=0
+                echo "FAIL  source is not B:\\"; ok=0
             fi
         fi
         [ $ok = 1 ] && { python3 "$here/fatcheck.py" verify "$out/$case/floppy.img" \
-            "$out/files" "$out/src/MS" IO.SYS MSDOS.SYS || ok=0; }
+            "$out/files" "$out/src/T" TBIOS.SYS TDOS.SYS || ok=0; }
         ;;
     sys-same)
         # The 6.22 files go in after the fixture's, so they sit past

@@ -4,23 +4,22 @@ AnySYS is an "(Almost) Universal SYS Command" for 16-bit DOS. It is written
 in C89-style Watcom C for Open Watcom / Watcom C targeting a real-mode DOS
 EXE.
 
-It is a drop-in replacement for DOS's own `SYS`, used the same way, from one
-disk to another:
+It is a drop-in replacement for DOS's own `SYS`, and takes the same commands
+as `SYS` does from MS-DOS 4.0 on:
 
 ```text
+ANYSYS C:             system files from the current drive to C:
 ANYSYS A: C:          system files from A: to C:
-ANYSYS C:             system files from the boot disk to C:
+ANYSYS C:\DOS6 A:     system files from the folder C:\DOS6 to A:
 ```
 
 On top of that familiar form, AnySYS expands what `SYS` can do:
 
-- **Any folder as the source.** `SYS` copies the system files from one disk
-  to another. AnySYS can also take them from a folder, so one disk can hold
-  the files for many DOS versions side by side:
-
-  ```text
-  ANYSYS C:\DOS6 A:     system files from the folder C:\DOS6 to A:
-  ```
+- **A source drive or folder for every DOS.** Before MS-DOS 4.0, `SYS` took
+  only a target drive and always copied from the current drive. AnySYS
+  accepts a source drive or folder whichever DOS it is installing and
+  whichever DOS it runs under, so one disk can hold the files for many DOS
+  versions side by side.
 
 - **More operating systems.** One program handles MS-DOS, PC-DOS, DR-DOS,
   FreeDOS, Windows 9x and Me, and OEM builds such as Toshiba's MS-DOS 2.11,
@@ -132,22 +131,20 @@ ANYSYS drive: /RESTORBS:file
 
 The source is a drive or a folder holding the system files and COMMAND.COM.
 As with `SYS`, a drive on its own means its root (`A:` is `A:\`), and a
-source left out means the root of the drive DOS booted from (DOS 4.0 and
-later; earlier DOS versions report no boot drive, so the current drive's
-root is used, as their `SYS` did). With `/OEM` left on `AUTO`, AnySYS
+source left out means the root of the current drive. With `/OEM` left on `AUTO`, AnySYS
 picks the DOS family from the system files it finds there.
 
-The same form as `SYS`, from one disk to another:
+The same forms as `SYS` from MS-DOS 4.0 on:
 
 ```text
-ANYSYS A: C:
 ANYSYS C:
+ANYSYS A: C:
+ANYSYS C:\DOS6 A:
 ```
 
-With the expanded options, starting with a folder as the source:
+With the expanded options:
 
 ```text
-ANYSYS C:\DOS6 A:
 ANYSYS C:\FDOS\BIN A: /OEM:FD /BOOTSRC:FDBOOT.BIN /BACKUPBS:A.BAK
 ANYSYS A: ABOOT.BIN /OEM:FD /BOOTSRC:FDBOOT.BIN
 ANYSYS C: /DUMPBS:CBOOT.BIN
