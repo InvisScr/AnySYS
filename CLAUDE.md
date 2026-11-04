@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-AnySYS is an (almost) universal `SYS` command for 16-bit DOS: it copies a DOS version's kernel files onto a FAT volume and optionally installs boot code, aiming to work across every DOS family. It is a single file, `src/anysys.c` (GPL-2.0-or-later, C89 style), built with OpenWatcom. **AnyDOS** (the universal DOS installer, repository `InvisScr/AnyDOS`) spawns it for its system-transfer step; AnyDOS is not GPL, which is why the two are separate programs and code must not move between them.
+AnySYS is an (almost) universal `SYS` command for 16-bit DOS: it copies a DOS version's kernel files onto a FAT volume and optionally installs boot code, aiming to work across every DOS family. It is a single file, `src/anysys.c` (GPL-2.0-or-later, C89 style), built with OpenWatcom. It is a standalone program that predates AnyDOS. **AnyDOS** (the universal DOS installer, repository `InvisScr/AnyDOS`) later adopted it because it was a good fit, and spawns it for its system-transfer step. AnyDOS is not GPL, so the two stay separate programs and code must not move between them. Describe AnySYS as its own program that AnyDOS uses, never as a part made for AnyDOS.
 
 ## Build
 

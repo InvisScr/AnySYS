@@ -26,9 +26,10 @@ On top of that familiar form, AnySYS expands what `SYS` can do:
   system files in an exact spot on the disk, AnySYS moves any files that are
   in the way instead of failing with "No room for system on destination disk".
 
-AnySYS is the system-transfer step of
+AnySYS is a program in its own right. Because it was a good fit,
 [AnyDOS](https://github.com/InvisScr/AnyDOS), the universal DOS installer,
-which runs it as a separate program. It also works on its own.
+later adopted it for its system-transfer step and runs it as a separate
+program.
 
 In detail, the program makes an already formatted FAT volume bootable by:
 
