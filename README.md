@@ -4,6 +4,12 @@ AnySYS is an "(Almost) Universal SYS Command" for 16-bit DOS. It is written
 in C89-style Watcom C for Open Watcom / Watcom C targeting a real-mode DOS
 EXE.
 
+**AnySYS works with most versions of DOS without needing the version-specific
+`SYS.COM` for the DOS that is currently running.** Each DOS ships its own
+`SYS`, made for that one version. AnySYS is one program: run it under the DOS
+you have, and it makes a disk bootable with the DOS you want. That is the
+reason it exists.
+
 It is a drop-in replacement for DOS's own `SYS`, and takes the same commands
 as `SYS` does from MS-DOS 4.0 on:
 
@@ -22,8 +28,8 @@ On top of that familiar form, AnySYS expands what `SYS` can do:
   versions side by side.
 
 - **More operating systems.** One program handles MS-DOS, PC-DOS, DR-DOS,
-  FreeDOS, Windows 9x and Me, and OEM builds such as Toshiba's MS-DOS 2.11,
-  instead of each DOS needing its own `SYS` (see `/OEM`).
+  FreeDOS, Windows 9x and Me, and OEM builds such as Toshiba's MS-DOS 2.11
+  (see `/OEM`).
 - **More ways to do the job.** Boot code can come from a separate template,
   the boot sector can be backed up, dumped or restored exactly, and a dry run
   shows what would happen without writing anything.
