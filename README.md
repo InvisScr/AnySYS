@@ -4,18 +4,24 @@ AnySYS is an "(Almost) Universal SYS Command" for 16-bit DOS. It is written
 in C89-style Watcom C for Open Watcom / Watcom C targeting a real-mode DOS
 EXE.
 
-It is a drop-in replacement for DOS's own `SYS`, used the same way:
+It is a drop-in replacement for DOS's own `SYS`, used the same way, from one
+disk to another:
 
 ```text
 ANYSYS A: C:          system files from A: to C:
-ANYSYS C:\DOS6 A:     system files from the folder C:\DOS6 to A:
+ANYSYS C:             system files from the boot disk to C:
 ```
 
 On top of that familiar form, AnySYS expands what `SYS` can do:
 
-- **Any folder as the source.** The system files can come from any directory,
-  not just the root of a boot disk, so one disk can hold the files for many
-  DOS versions side by side.
+- **Any folder as the source.** `SYS` copies the system files from one disk
+  to another. AnySYS can also take them from a folder, so one disk can hold
+  the files for many DOS versions side by side:
+
+  ```text
+  ANYSYS C:\DOS6 A:     system files from the folder C:\DOS6 to A:
+  ```
+
 - **More operating systems.** One program handles MS-DOS, PC-DOS, DR-DOS,
   FreeDOS, Windows 9x and Me, and OEM builds such as Toshiba's MS-DOS 2.11,
   instead of each DOS needing its own `SYS` (see `/OEM`).
@@ -131,16 +137,17 @@ later; earlier DOS versions report no boot drive, so the current drive's
 root is used, as their `SYS` did). With `/OEM` left on `AUTO`, AnySYS
 picks the DOS family from the system files it finds there.
 
-The same form as `SYS`:
+The same form as `SYS`, from one disk to another:
 
 ```text
 ANYSYS A: C:
-ANYSYS C:\DOS6 A:
+ANYSYS C:
 ```
 
-With the expanded options:
+With the expanded options, starting with a folder as the source:
 
 ```text
+ANYSYS C:\DOS6 A:
 ANYSYS C:\FDOS\BIN A: /OEM:FD /BOOTSRC:FDBOOT.BIN /BACKUPBS:A.BAK
 ANYSYS A: ABOOT.BIN /OEM:FD /BOOTSRC:FDBOOT.BIN
 ANYSYS C: /DUMPBS:CBOOT.BIN
