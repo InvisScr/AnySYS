@@ -5,6 +5,12 @@ QEMU against generated floppies, checking kernel placement, file survival,
 filesystem consistency and, for MS-DOS 6.22, that the result boots. Run it
 after any change to raw placement, the boot-sector merge or sector I/O.
 
+The automated cases cover what the manual tests below do not: Toshiba
+MS-DOS 2.11 on a blank 720K floppy (byte match with Toshiba's original disk),
+Toshiba 2.11 and MS-DOS 6.22 on a floppy whose low clusters are all in use
+(every file must survive being moved), and the 6.22 result booting. See
+`tools/qemu/README` for each case.
+
 This file records manual compatibility tests. A `+` means the target booted
 successfully. A `-` means the target did not boot in that test. A `?` means
 the result is inconclusive because some outside factor may explain the failure,

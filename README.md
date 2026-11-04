@@ -1,10 +1,36 @@
 # AnySYS
 
-AnySYS is an experimental "(Almost) Universal SYS Command" for 16-bit DOS.
-It is written in C89-style Watcom C for Open Watcom / Watcom C targeting a
-real-mode DOS EXE.
+AnySYS is an "(Almost) Universal SYS Command" for 16-bit DOS. It is written
+in C89-style Watcom C for Open Watcom / Watcom C targeting a real-mode DOS
+EXE.
 
-The program is intended to make an already formatted FAT volume bootable by:
+It is a drop-in replacement for DOS's own `SYS`, used the same way:
+
+```text
+ANYSYS A: C:          system files from A: to C:
+ANYSYS C:\DOS6 A:     system files from the folder C:\DOS6 to A:
+```
+
+On top of that familiar form, AnySYS expands what `SYS` can do:
+
+- **Any folder as the source.** The system files can come from any directory,
+  not just the root of a boot disk, so one disk can hold the files for many
+  DOS versions side by side.
+- **More operating systems.** One program handles MS-DOS, PC-DOS, DR-DOS,
+  FreeDOS, Windows 9x and Me, and OEM builds such as Toshiba's MS-DOS 2.11,
+  instead of each DOS needing its own `SYS` (see `/OEM`).
+- **More ways to do the job.** Boot code can come from a separate template,
+  the boot sector can be backed up, dumped or restored exactly, and a dry run
+  shows what would happen without writing anything.
+- **More reliable results.** For the oldest DOS versions, which need their
+  system files in an exact spot on the disk, AnySYS moves any files that are
+  in the way instead of failing with "No room for system on destination disk".
+
+AnySYS is the system-transfer step of
+[AnyDOS](https://github.com/InvisScr/AnyDOS), the universal DOS installer,
+which runs it as a separate program. It also works on its own.
+
+In detail, the program makes an already formatted FAT volume bootable by:
 
 1. copying DOS system files to the target root directory;
 2. optionally installing boot code from a 512-byte boot sector template while
@@ -17,7 +43,8 @@ family you want to install.
 
 ## Status
 
-This is a first working skeleton. It includes:
+Version 1.0 is the first release. It has been tested in emulators only, not
+yet on a real period PC. It includes:
 
 - OEM profiles for FreeDOS, MS/Win9x DOS, PC-DOS, DR-DOS-style file names,
   Toshiba's MS-DOS 2.11 OEM build (`TBIOS.SYS`/`TDOS.SYS`), and MS-DOS 8.0
@@ -61,19 +88,28 @@ the manual compatibility matrix.
 
 ## Build
 
-With Open Watcom available in the DOS or Windows environment:
+With Open Watcom 2.0 set up (`WATCOM`, `INCLUDE=%WATCOM%\h` and its binaries
+on `PATH`), from the repository root.
 
-```bat
-Build_AnySYS_Watcom.bat
+On Linux:
+
+```sh
+wmake -h -f makefile.wat
 ```
 
-or:
+On DOS or Windows:
 
 ```bat
 wmake -f makefile.wat
 ```
 
-The output is `AnySYS.exe`.
+or, on Windows only:
+
+```bat
+Build_AnySYS_Watcom.bat
+```
+
+The output is `AnySYS.exe`; `wmake -f makefile.wat clean` removes it.
 
 ## Usage
 
@@ -83,7 +119,18 @@ ANYSYS drive: /DUMPBS:file
 ANYSYS drive: /RESTORBS:file
 ```
 
-Examples:
+The source is a drive or a folder holding the system files and COMMAND.COM.
+Left out, it is the current directory. With `/OEM` left on `AUTO`, AnySYS
+picks the DOS family from the system files it finds there.
+
+The same form as `SYS`:
+
+```text
+ANYSYS A: C:
+ANYSYS C:\DOS6 A:
+```
+
+With the expanded options:
 
 ```text
 ANYSYS C:\FDOS\BIN A: /OEM:FD /BOOTSRC:FDBOOT.BIN /BACKUPBS:A.BAK

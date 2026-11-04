@@ -18,7 +18,7 @@
 #include <dos.h>
 #endif
 
-#define ANYSYS_VERSION "0.2"
+#define ANYSYS_VERSION "1.0"
 #define SECTOR_SIZE 512
 #define MAX_PATH_LEN 128
 #define MAX_NAME_LEN 13
