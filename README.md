@@ -72,9 +72,13 @@ including `.` and `..` of moved directories), writes the new kernel data
 contiguously, updates all FAT copies, then writes fresh hidden/system/read-only
 root entries. It refuses if one of those clusters is marked bad or is in use
 without belonging to any file (run CHKDSK /F first). It does
-not move long-filename entry sets, and it refuses to use the target root itself
-as the source directory during raw replacement. Copy source system files to a
-different drive or subdirectory first for that case.
+not move long-filename entry sets.
+
+When the source is on the target drive - including its root, as with
+`ANYSYS C:` after booting from C: - AnySYS reads the system files into memory
+before it changes anything on the disk, and writes them from there. A file
+that would be copied onto itself, such as `COMMAND.COM` in that case, is left
+as it is.
 
 The low-level sector I/O path uses DOS INT 25h/26h wrappers when built with
 Watcom for DOS. Test this first in PCem, 86Box or QEMU, or on a disk image,

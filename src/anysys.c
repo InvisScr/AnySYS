@@ -16,6 +16,7 @@
 
 #if defined(__DOS__) || defined(MSDOS) || defined(__MSDOS__)
 #include <dos.h>
+#include <fcntl.h>
 #endif
 
 #define ANYSYS_VERSION "1.0"
@@ -71,6 +72,7 @@ typedef struct {
     dword size;
     dword clusters_needed;
     dword start_cluster;
+    unsigned mem_seg;   /* DOS memory block holding the file, 0 if none */
 } KernelPlan;
 
 typedef enum {
@@ -782,6 +784,68 @@ static const char *effective_fd_kernel_name(const Options *opt, const OemProfile
     return profile->kernel1;
 }
 
+/* The drive a path is on: its own drive letter, or the current drive. */
+static char path_drive(const char *path)
+{
+    if (isalpha((unsigned char)path[0]) && path[1] == ':') {
+        return (char)toupper((unsigned char)path[0]);
+    }
+#if defined(__DOS__) || defined(MSDOS) || defined(__MSDOS__)
+    {
+        unsigned d = 0;
+        _dos_getdrive(&d);
+        if (d >= 1 && d <= 26) {
+            return (char)('A' + d - 1);
+        }
+    }
+#endif
+    return '\0';
+}
+
+#if defined(__WATCOMC__) && (defined(__DOS__) || defined(MSDOS) || defined(__MSDOS__))
+/* DOS's own full name for a path (INT 21h AH=60h, DOS 3.0 and later), so
+   that C:\COMMAND.COM, C:COMMAND.COM and .\COMMAND.COM compare equal.
+   Returns 0 where DOS cannot say. */
+static int dos_truename(const char *path, char *full)
+{
+    unsigned failed = 0;
+
+    _asm {
+        push es
+        push si
+        push di
+        mov ax, ds
+        mov es, ax
+        mov si, path
+        mov di, full
+        mov ah, 60h
+        int 21h
+        jnc truename_ok
+        mov failed, 1
+truename_ok:
+        pop di
+        pop si
+        pop es
+    }
+    return !failed;
+}
+#endif
+
+/* Whether two paths name the same file, as when SYS C: runs from C:\ and
+   COMMAND.COM would be copied onto itself. */
+static int same_file(const char *a, const char *b)
+{
+#if defined(__WATCOMC__) && (defined(__DOS__) || defined(MSDOS) || defined(__MSDOS__))
+    static char ta[MAX_PATH_LEN];
+    static char tb[MAX_PATH_LEN];
+
+    if (dos_truename(a, ta) && dos_truename(b, tb)) {
+        return streqi(ta, tb);
+    }
+#endif
+    return streqi(a, b);
+}
+
 static int copy_one_system_file(const Options *opt, const char *src_name,
                                 const char *dst_name, const char *override_name,
                                 int mark_system)
@@ -795,7 +859,12 @@ static int copy_one_system_file(const Options *opt, const char *src_name,
         return 0;
     }
 
-    if (!copy_file_stream(src, dst, opt->dryrun, opt->verbose)) {
+    if (same_file(src, dst)) {
+        /* Copying it onto itself would truncate it first. */
+        if (opt->verbose || opt->dryrun) {
+            printf("%s is already in place\n", dst);
+        }
+    } else if (!copy_file_stream(src, dst, opt->dryrun, opt->verbose)) {
         return 0;
     }
     if (mark_system) {
@@ -1664,6 +1733,98 @@ static int find_contiguous_free_run_avoiding(char drive, const FatInfo *fat,
     return 0;
 }
 
+#if defined(__DOS__) || defined(MSDOS) || defined(__MSDOS__)
+/* ---- holding a kernel in memory --------------------------------------
+ *
+ * When the source is on the target drive, raw placement is about to free
+ * the old kernels and move other files about underneath it - the source
+ * may be those very kernels (SYS C: from C:\), or files that get moved
+ * while DOS still holds their old place in its buffers. So the kernels
+ * are read into memory first, before anything on the disk changes, and
+ * written from there. A DOS memory block is used because a Windows 9x
+ * IO.SYS is far larger than the 64K data segment of a small-model EXE.
+ */
+
+static void release_kernel(KernelPlan *plan)
+{
+    if (plan->mem_seg != 0) {
+        _dos_freemem(plan->mem_seg);
+        plan->mem_seg = 0;
+    }
+}
+
+static int preload_kernel(KernelPlan *plan)
+{
+    dword paras = (plan->size + 15) / 16;
+    dword done = 0;
+    unsigned seg;
+    unsigned avail;
+    int handle;
+
+    if (paras > 0xFFFFUL || _dos_allocmem((unsigned)paras, &seg) != 0) {
+        fprintf(stderr,
+                "ANYSYS: not enough memory to hold %s (%lu bytes) while the\n"
+                "        disk it is on is rearranged\n",
+                plan->src, (unsigned long)plan->size);
+        return 0;
+    }
+    plan->mem_seg = seg;
+
+    if (_dos_open(plan->src, O_RDONLY, &handle) != 0) {
+        fprintf(stderr, "ANYSYS: cannot open %s\n", plan->src);
+        release_kernel(plan);
+        return 0;
+    }
+
+    /* At most 32K a read, each into a segment starting where the last
+       left off, so no read crosses a 64K boundary of its own pointer. */
+    while (done < plan->size) {
+        dword left = plan->size - done;
+        unsigned want = left > 0x8000UL ? 0x8000U : (unsigned)left;
+        void __far *dst = MK_FP(seg + (unsigned)(done >> 4),
+                                (unsigned)(done & 15));
+
+        if (_dos_read(handle, dst, want, &avail) != 0 || avail != want) {
+            fprintf(stderr, "ANYSYS: read failed for %s\n", plan->src);
+            _dos_close(handle);
+            release_kernel(plan);
+            return 0;
+        }
+        done += want;
+    }
+    _dos_close(handle);
+    return 1;
+}
+
+static int write_memory_to_contiguous_clusters(char drive, const FatInfo *fat,
+                                               const KernelPlan *plan)
+{
+    dword offset = 0;
+    dword sectors = plan->clusters_needed * fat->sectors_per_cluster;
+    dword first = cluster_to_sector(fat, plan->start_cluster);
+    dword i;
+
+    for (i = 0; i < sectors; ++i) {
+        memset(disk_sector, 0, sizeof(disk_sector));
+        if (offset < plan->size) {
+            dword left = plan->size - offset;
+            unsigned n = left > SECTOR_SIZE ? SECTOR_SIZE : (unsigned)left;
+            _fmemcpy(disk_sector,
+                     MK_FP(plan->mem_seg + (unsigned)(offset >> 4),
+                           (unsigned)(offset & 15)),
+                     n);
+            offset += n;
+        }
+        if (dos_write_logical_sector(drive, first + i, disk_sector) != 0) {
+            fprintf(stderr, "ANYSYS: cannot write data sector %lu\n",
+                    (unsigned long)(first + i));
+            return 0;
+        }
+    }
+    return 1;
+}
+#endif
+
 static int write_file_to_contiguous_clusters(char drive, const FatInfo *fat,
                                              const KernelPlan *plan, int dryrun)
 {
@@ -1679,6 +1840,12 @@ static int write_file_to_contiguous_clusters(char drive, const FatInfo *fat,
                (unsigned long)(plan->start_cluster + plan->clusters_needed - 1));
         return 1;
     }
+
+#if defined(__DOS__) || defined(MSDOS) || defined(__MSDOS__)
+    if (plan->mem_seg != 0) {
+        return write_memory_to_contiguous_clusters(drive, fat, plan);
+    }
+#endif
 
     f = fopen(plan->src, "rb");
     if (f == NULL) {
@@ -2155,41 +2322,20 @@ static int clear_cluster_run(const Options *opt, const FatInfo *fat,
     return 1;
 }
 
-static int source_is_target_root(const Options *opt)
+static int source_on_target_drive(const Options *opt)
 {
-    const char *p = opt->source;
-
-    if (!(isalpha((unsigned char)p[0]) && p[1] == ':')) {
-        return 0;
-    }
-    if (toupper((unsigned char)p[0]) != opt->target_drive) {
-        return 0;
-    }
-    p += 2;
-    if (*p == '\0') {
-        return 1;
-    }
-    if ((p[0] == '\\' || p[0] == '/') && p[1] == '\0') {
-        return 1;
-    }
-    return 0;
+    return path_drive(opt->source) == opt->target_drive;
 }
 
-static int raw_install_system_kernels(const Options *opt, const OemProfile *profile)
+static KernelPlan raw_plans[2];
+
+static int raw_install_inner(const Options *opt, const OemProfile *profile)
 {
     FatInfo fat;
-    KernelPlan plans[2];
+    KernelPlan *plans = raw_plans;
     unsigned plan_count = 0;
     unsigned i;
     byte entry[DIR_ENTRY_SIZE];
-
-    if (source_is_target_root(opt)) {
-        fprintf(stderr,
-                "ANYSYS: source cannot be the target root during raw replacement\n");
-        fprintf(stderr,
-                "        Copy the source system files to another drive or directory first.\n");
-        return 0;
-    }
 
     if (dos_read_boot_sector(opt->target_drive, boot_current) != 0 ||
         !parse_fat_info(boot_current, &fat)) {
@@ -2207,6 +2353,20 @@ static int raw_install_system_kernels(const Options *opt, const OemProfile *prof
         return 0;
     }
     plan_count = 2;
+
+#if defined(__DOS__) || defined(MSDOS) || defined(__MSDOS__)
+    /* Before anything on the disk changes; see preload_kernel. */
+    if (source_on_target_drive(opt) && !opt->dryrun) {
+        for (i = 0; i < plan_count; ++i) {
+            if (!preload_kernel(&plans[i])) {
+                return 0;
+            }
+        }
+        if (opt->verbose) {
+            puts("Source is on the target drive; kernels held in memory.");
+        }
+    }
+#endif
 
     if (opt->verbose || opt->dryrun) {
         printf("FAT%u: %lu clusters, %u sectors/cluster, root entries %u\n",
@@ -2274,6 +2434,19 @@ static int raw_install_system_kernels(const Options *opt, const OemProfile *prof
     }
     puts("System kernels placed in the first root entries with contiguous FAT chains.");
     return 1;
+}
+
+static int raw_install_system_kernels(const Options *opt, const OemProfile *profile)
+{
+    int ok;
+
+    memset(raw_plans, 0, sizeof(raw_plans));
+    ok = raw_install_inner(opt, profile);
+#if defined(__DOS__) || defined(MSDOS) || defined(__MSDOS__)
+    release_kernel(&raw_plans[0]);
+    release_kernel(&raw_plans[1]);
+#endif
+    return ok;
 }
 
 static int read_target_boot_sector(const Options *opt, byte *sector)

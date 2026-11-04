@@ -18,6 +18,9 @@
 #                  root (6.22), not its current directory (Toshiba)
 #   sys-default    ANYSYS A: run from C:\SRCT; the source must be the
 #                  root of the boot drive, as with SYS
+#   sys-same       ANYSYS A: A: on a used floppy whose root already holds
+#                  the 6.22 files, out of place; source and target are the
+#                  same root, then the floppy must boot
 #
 # Everything lands in tools/qemu/out/<case>/: the floppy, serial.log (all
 # AnySYS output, stderr included), and qemu.log.
@@ -32,7 +35,7 @@ REF622=${REF622:-"$REFS/Done2/Microsoft MS-DOS 6.22 Plus Enhanced Tools.img"}
 TOSHREF=${TOSHREF:-"$REFS/Done/Microsoft MS-DOS 2.11 [Toshiba T1100 Plus OEM] (3.5-720k)/disk01.img"}
 EXE=${EXE:-"$root/AnySYS.exe"}
 TIMEOUT=${TIMEOUT:-120}
-CASES=${*:-"toshiba-fresh toshiba-used ms622-used sys-drive sys-default"}
+CASES=${*:-"toshiba-fresh toshiba-used ms622-used sys-drive sys-default sys-same"}
 
 for f in "$EXE" "$REF622" "$TOSHREF"; do
     [ -f "$f" ] || { echo "missing: $f" >&2; [ "$f" = "$EXE" ] && echo "build first: wmake -h -f makefile.wat" >&2; exit 2; }
@@ -173,6 +176,26 @@ for case in $CASES; do
         fi
         [ $ok = 1 ] && { python3 "$here/fatcheck.py" verify "$out/$case/floppy.img" \
             "$out/files" "$out/src/MS" IO.SYS MSDOS.SYS || ok=0; }
+        ;;
+    sys-same)
+        # The 6.22 files go in after the fixture's, so they sit past
+        # cluster 54 and behind HELLO.TXT and SUB in the root.
+        cp "$out/used.img" "$out/used-sys.img"
+        mcopy -i "$out/used-sys.img" "$out"/src/MS/IO.SYS "$out"/src/MS/MSDOS.SYS \
+            "$out"/src/MS/COMMAND.COM ::/
+        mattrib -i "$out/used-sys.img" +r +h +s ::/IO.SYS ::/MSDOS.SYS
+        anysys "$case" used-sys.img 'A: /BOOTSRC:C:\B622.BIN' || ok=0
+        [ $ok = 1 ] && { python3 "$here/fatcheck.py" verify "$out/$case/floppy.img" \
+            "$out/files" "$out/src/MS" IO.SYS MSDOS.SYS || ok=0; }
+        if [ $ok = 1 ]; then
+            mcopy -n -i "$out/$case/floppy.img" ::/COMMAND.COM "$out/$case/COMMAND.COM"
+            if cmp -s "$out/$case/COMMAND.COM" "$out/src/MS/COMMAND.COM"; then
+                echo "ok    COMMAND.COM intact"
+            else
+                echo "FAIL  COMMAND.COM damaged"; ok=0
+            fi
+        fi
+        [ $ok = 1 ] && { boots "$case" || ok=0; }
         ;;
     *)
         echo "unknown case: $case" >&2; ok=0

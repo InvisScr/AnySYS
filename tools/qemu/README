@@ -42,6 +42,14 @@ sys-default
     must be the root of the boot drive: the log must show "Source: C:\"
     and the 6.22 kernels must be installed.
 
+sys-same
+    ANYSYS A: A: on the used floppy with the 6.22 files already in its
+    root, hidden and out of place behind the fixture's files. Source and
+    target are the same root, so AnySYS has to hold the kernels in memory
+    while it clears cluster 2, and leave COMMAND.COM alone rather than copy
+    it onto itself. Same checks as ms622-used, COMMAND.COM must be intact,
+    and the floppy must boot.
+
 The used floppy
 ---------------
 fatcheck.py builds it identically every run (fixed-seed data) with every

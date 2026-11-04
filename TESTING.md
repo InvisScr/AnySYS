@@ -10,7 +10,8 @@ MS-DOS 2.11 on a blank 720K floppy (byte match with Toshiba's original disk),
 Toshiba 2.11 and MS-DOS 6.22 on a floppy whose low clusters are all in use
 (every file must survive being moved), the 6.22 result booting, and the
 source defaults matching `SYS` (`ANYSYS C: A:` and `ANYSYS A:` both take the
-system files from the root of C:, not its current directory). See
+system files from the root of C:, not its current directory), and `ANYSYS A:
+A:` with source and target the same root. See
 `tools/qemu/README` for each case.
 
 This file records manual compatibility tests. A `+` means the target booted
