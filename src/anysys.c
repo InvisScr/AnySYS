@@ -625,6 +625,8 @@ static int copy_file_stream(const char *src, const char *dst, int dryrun, int ve
     FILE *in;
     FILE *out;
     size_t n;
+    long expected = -1L;
+    long copied = 0L;
 
     if (dryrun) {
         printf("Would copy %s -> %s\n", src, dst);
@@ -666,6 +668,11 @@ static int copy_file_stream(const char *src, const char *dst, int dryrun, int ve
         return 0;
     }
 
+    if (fseek(in, 0L, SEEK_END) == 0) {
+        expected = ftell(in);
+    }
+    rewind(in);
+
     while ((n = fread(copy_buffer, 1, sizeof(copy_buffer), in)) > 0) {
         if (fwrite(copy_buffer, 1, n, out) != n) {
             fprintf(stderr, "ANYSYS: write failed for %s\n", dst);
@@ -673,10 +680,21 @@ static int copy_file_stream(const char *src, const char *dst, int dryrun, int ve
             fclose(in);
             return 0;
         }
+        copied += (long)n;
     }
 
     if (ferror(in)) {
         fprintf(stderr, "ANYSYS: read failed for %s\n", src);
+        fclose(out);
+        fclose(in);
+        return 0;
+    }
+
+    /* After "Fail" at a critical error, a read off a CD through MSCDEX can
+       come back with no error and no data, which looks like end of file. */
+    if (expected >= 0L && copied != expected) {
+        fprintf(stderr, "ANYSYS: read only %ld of %ld bytes from %s\n",
+                copied, expected, src);
         fclose(out);
         fclose(in);
         return 0;
