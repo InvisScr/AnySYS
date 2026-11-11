@@ -56,8 +56,8 @@ family you want to install.
 
 ## Status
 
-Version 1.0 is the first release. It has been tested in emulators only, not
-yet on a real period PC. It includes:
+Version 1.1 adds FAT32 targets to the first release, 1.0. It has been
+tested in emulators only, not yet on a real period PC. It includes:
 
 - OEM profiles for FreeDOS, MS/Win9x DOS, PC-DOS, DR-DOS-style file names,
   Toshiba's MS-DOS 2.11 OEM build (`TBIOS.SYS`/`TDOS.SYS`), and MS-DOS 8.0
