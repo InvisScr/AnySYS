@@ -45,7 +45,8 @@ program.
 In detail, the program makes an already formatted FAT volume bootable by:
 
 1. copying DOS system files to the target root directory;
-2. optionally installing boot code from a 512-byte boot sector template while
+2. optionally installing boot code from a 512-byte boot sector template (or,
+   for FAT32, the first three sectors of a volume, 1536 bytes) while
    preserving the target volume's BPB/EBPB;
 3. supporting backup, dump, and exact restore of a target volume boot sector.
 
@@ -70,6 +71,15 @@ yet on a real period PC. It includes:
   Only the BPB the template has room for is carried over: the copy stops at
   the template's jump target, so pre-DOS 4 loaders that start before 3Eh
   (Toshiba 2.11 starts at 24h) are not overwritten.
+- FAT32: a 1536-byte `/BOOTSRC` template (boot sector, free space sector,
+  second loader sector) puts the loader in sector 0 and sector 2 and in the
+  backup copies the BPB names (usually 6 and 8). A FAT12/16 template is
+  refused on a FAT32 volume and the reverse. The reserved bytes 34h-3Fh of
+  the FAT32 BPB are kept from the template: DR-DOS 8.0's loader keeps the
+  name "IBMBIO  COM" there. Kernel pairs are copied by name on FAT32,
+  since FAT32 loaders find their kernel wherever it is; for the IBMBIO.COM
+  profiles each kernel's chain is then ended with FFFFFFFFh, the only end
+  DR-DOS 8.0's IBMBIO.COM accepts when it loads IBMDOS.COM.
 - FAT12/16 raw placement for MS-DOS, PC-DOS, and DR-DOS-style kernel pairs:
   the first two root directory entries are reserved for the two kernel files,
   the first kernel always starts at cluster 2 (DOS 2.x/3.x loaders read it
@@ -93,7 +103,11 @@ that would be copied onto itself, such as `COMMAND.COM` in that case, is left
 as it is.
 
 The low-level sector I/O path uses DOS INT 25h/26h wrappers when built with
-Watcom for DOS. Test this first in PCem, 86Box or QEMU, or on a disk image,
+Watcom for DOS, and under MS-DOS 7 and later INT 21h 7305h first, which is
+the only way those versions allow on FAT32. They also drop a direct write
+to a drive that is not locked, so AnySYS locks the target (level 0) before
+its first write there and lets go when it exits. DR-DOS 8.0 has no 7305h
+and takes the INT 25h/26h packet form on FAT32. Test this first in PCem, 86Box or QEMU, or on a disk image,
 before touching real media. Do not trust DOSBox for it: it accepts boot
 sector writes on image-mounted drives without saving them, and AnySYS still
 reports success.

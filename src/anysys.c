@@ -139,6 +139,10 @@ static const OemProfile profiles[] = {
 static byte copy_buffer[8192];
 static byte boot_current[SECTOR_SIZE];
 static byte boot_source[SECTOR_SIZE];
+/* A FAT32 template's third sector: MS-DOS 7.1 and later carry on their
+   loader there. Only from a 1536 byte /BOOTSRC file. */
+static byte boot_source2[SECTOR_SIZE];
+static int have_boot_source2;
 static byte boot_merged[SECTOR_SIZE];
 static byte disk_sector[SECTOR_SIZE];
 static byte disk_sector2[SECTOR_SIZE];
@@ -468,7 +472,8 @@ static void print_usage(void)
     puts("Options:");
     puts("  /OEM[:AUTO|FD|MS|W9X|PC|DR|EDR|TOSHIBA|ME]");
     puts("                                   Select DOS family.");
-    puts("  /BOOTSRC:file                    512-byte boot sector template.");
+    puts("  /BOOTSRC:file                    512-byte boot sector template, or for");
+    puts("                                   FAT32 the first three sectors (1536).");
     puts("  /BOOTONLY                        Update boot sector only.");
     puts("  /UPDATE                          Copy kernel files, not COMMAND.COM.");
     puts("  /K:name                          Destination kernel name for FD-style OEM.");
@@ -873,6 +878,132 @@ static int copy_one_system_file(const Options *opt, const char *src_name,
     return 1;
 }
 
+static int dos_read_logical_sector(char drive, dword logical_sector, byte *sector);
+static int is_fat32_bpb(const byte *sector);
+
+/* Whether the target volume is FAT32, from its boot sector. A sector
+   that cannot be read is not FAT32 here; the raw placement that follows
+   reports the read itself. */
+static int target_is_fat32(const Options *opt)
+{
+    static byte sec[SECTOR_SIZE];
+
+    if (dos_read_logical_sector(opt->target_drive, 0, sec) != 0) {
+        return 0;
+    }
+    return sec[510] == 0x55 && sec[511] == 0xAA && is_fat32_bpb(sec);
+}
+
+static int dos_write_logical_sector(char drive, dword logical_sector, const byte *sector);
+static void dos_flush_disk_buffers(void);
+static int parse_short_name(const char *name, byte out[11]);
+static word get_le_word(const byte *p);
+static dword get_le_dword(const byte *p);
+static void put_le_dword(byte *p, dword value);
+
+/* DR-DOS 8.0's IBMBIO.COM loads IBMDOS.COM itself on FAT32, and takes
+   only FFFFFFFFh as the end of its chain - what DR-DOS writes. MS-DOS 7.1
+   and later end a chain with 0FFFFFFFh, the value the FAT32 definition
+   gives, and with AnySYS run under one of those the copy ended that way:
+   IBMBIO.COM then said "Can't load DOS file". So the last FAT entry of
+   each kernel file is set to FFFFFFFFh in every FAT, which every FAT32
+   reader takes as the end too (the top four bits are reserved). The file
+   is found in the root directory by name and followed through the FAT;
+   nothing else is changed. */
+static int fat32_end_chain_ff(char drive, const char *name)
+{
+    static byte boot[SECTOR_SIZE];
+    static byte sec[SECTOR_SIZE];
+    byte want[11];
+    dword spf, res, data, root, cl, next, lsn, guard;
+    word spc, fats, i, n, off;
+    int rc;
+
+    if (!parse_short_name(name, want)) {
+        return 0;
+    }
+    rc = dos_read_logical_sector(drive, 0, boot);
+    if (rc != 0 || !is_fat32_bpb(boot)) {
+        fprintf(stderr, "ANYSYS: cannot read the FAT32 boot sector of %c: (DOS error %d)\n",
+                drive, rc);
+        return 0;
+    }
+    spc  = boot[13];
+    res  = get_le_word(boot + 14);
+    fats = boot[16];
+    spf  = get_le_dword(boot + 36);
+    root = get_le_dword(boot + 44) & 0x0FFFFFFFUL;
+    data = res + (dword)fats * spf;
+    if (spc == 0 || fats == 0) {
+        return 0;
+    }
+
+    /* The file's first cluster, from the root directory's chain. */
+    cl = 0;
+    for (guard = 0; root >= 2 && root < 0x0FFFFFF8UL && cl == 0 && guard < 4096; guard++) {
+        for (i = 0; i < spc && cl == 0; i++) {
+            lsn = data + (root - 2) * spc + i;
+            if (dos_read_logical_sector(drive, lsn, sec) != 0) {
+                return 0;
+            }
+            for (off = 0; off < SECTOR_SIZE; off += DIR_ENTRY_SIZE) {
+                if (sec[off] == 0) {
+                    break;
+                }
+                if (sec[off] != 0xE5 && (sec[off + 11] & ATTR_VOLUME) == 0 &&
+                    memcmp(sec + off, want, 11) == 0) {
+                    cl = ((dword)get_le_word(sec + off + 20) << 16) |
+                         get_le_word(sec + off + 26);
+                    break;
+                }
+            }
+        }
+        if (cl == 0) {
+            if (dos_read_logical_sector(drive, res + (root * 4) / SECTOR_SIZE, sec) != 0) {
+                return 0;
+            }
+            root = get_le_dword(sec + (word)((root * 4) % SECTOR_SIZE)) & 0x0FFFFFFFUL;
+        }
+    }
+    if (cl < 2) {
+        fprintf(stderr, "ANYSYS: %s not found on %c: to finish its chain\n", name, drive);
+        return 0;
+    }
+
+    /* Its last cluster. */
+    for (guard = 0; guard < 0x100000UL; guard++) {
+        if (dos_read_logical_sector(drive, res + (cl * 4) / SECTOR_SIZE, sec) != 0) {
+            return 0;
+        }
+        next = get_le_dword(sec + (word)((cl * 4) % SECTOR_SIZE)) & 0x0FFFFFFFUL;
+        if (next >= 0x0FFFFFF8UL) {
+            break;
+        }
+        if (next < 2) {
+            fprintf(stderr, "ANYSYS: %s has a broken cluster chain\n", name);
+            return 0;
+        }
+        cl = next;
+    }
+
+    /* FFFFFFFFh in every FAT copy. */
+    for (n = 0; n < fats; n++) {
+        lsn = res + (dword)n * spf + (cl * 4) / SECTOR_SIZE;
+        if (dos_read_logical_sector(drive, lsn, sec) != 0) {
+            return 0;
+        }
+        put_le_dword(sec + (word)((cl * 4) % SECTOR_SIZE), 0xFFFFFFFFUL);
+        rc = dos_write_logical_sector(drive, lsn, sec);
+        if (rc != 0) {
+            fprintf(stderr, "ANYSYS: cannot update the FAT on %c: (DOS error %d)\n",
+                    drive, rc);
+            return 0;
+        }
+    }
+    dos_flush_disk_buffers();
+    return 1;
+}
+
 static int copy_system_files(const Options *opt, const OemProfile *profile)
 {
     const char *dst_kernel1 = effective_fd_kernel_name(opt, profile);
@@ -886,7 +1017,31 @@ static int copy_system_files(const Options *opt, const OemProfile *profile)
 
     printf("Installing %s system files to %c:\\\n", profile->name, opt->target_drive);
 
-    if (profile->kernel2 != NULL && profile->kind != OEM_FD) {
+    if (profile->kernel2 != NULL && profile->kind != OEM_FD &&
+        target_is_fat32(opt)) {
+        /* No FAT32 loader needs its kernel at a set place: DR-DOS 8.0's
+           and PC-DOS 7.1's find IBMBIO.COM by name and follow its
+           cluster chain, as Windows 9x's do IO.SYS. So both files are
+           plain copies, as for the one-file profiles. */
+        if (opt->verbose) {
+            puts("Target is FAT32: copying the system files by name.");
+        }
+        if (!copy_one_system_file(opt, profile->kernel1, profile->kernel1,
+                                  opt->src_kernel_name, 1) ||
+            !copy_one_system_file(opt, profile->kernel2, profile->kernel2,
+                                  NULL, 1)) {
+            return 0;
+        }
+        if (!opt->dryrun &&
+            (profile->kind == OEM_DR || profile->kind == OEM_EDR ||
+             profile->kind == OEM_PC)) {
+            dos_flush_disk_buffers();
+            if (!fat32_end_chain_ff(opt->target_drive, profile->kernel1) ||
+                !fat32_end_chain_ff(opt->target_drive, profile->kernel2)) {
+                return 0;
+            }
+        }
+    } else if (profile->kernel2 != NULL && profile->kind != OEM_FD) {
         if (!raw_install_system_kernels(opt, profile)) {
             return 0;
         }
@@ -954,6 +1109,14 @@ static int looks_like_boot_sector(const byte *sector)
     return 1;
 }
 
+/* A FAT32 BPB: no 16 bit FAT size, no fixed root, a 32 bit FAT size. */
+static int is_fat32_bpb(const byte *sector)
+{
+    return get_le_word(sector + 22) == 0 &&
+           get_le_word(sector + 17) == 0 &&
+           get_le_dword(sector + 36) != 0;
+}
+
 static unsigned boot_code_offset_for_bpb(const byte *sector)
 {
     word root_entries = get_le_word(sector + 17);
@@ -994,11 +1157,23 @@ static int merge_boot_template(const byte *target_sector, const byte *template_s
     }
 
     offset = boot_code_offset_for_bpb(target_sector);
+    entry = template_entry(template_sector);
+
+    /* A FAT12/16 loader cannot walk FAT32, and its code would sit on the
+       FAT32 BPB; a FAT32 loader on a FAT12/16 volume reads its BPB from
+       the wrong places. Either way the result would not start. */
+    if (is_fat32_bpb(target_sector) && entry != 0 && entry < 90) {
+        fprintf(stderr, "ANYSYS: the target is FAT32 and the boot template is not\n");
+        return 0;
+    }
+    if (!is_fat32_bpb(target_sector) && is_fat32_bpb(template_sector)) {
+        fprintf(stderr, "ANYSYS: the boot template is FAT32 and the target is not\n");
+        return 0;
+    }
 
     /* Only the BPB the template has room for is carried over: everything
        from its jump target on is code. A jump into the BPB itself (below
        the 2.x fields' end at 1Eh) is not a layout we understand. */
-    entry = template_entry(template_sector);
     if (entry != 0 && entry < offset) {
         if (entry < 0x1E) {
             fprintf(stderr, "ANYSYS: boot template jumps into its own BPB (%02Xh)\n",
@@ -1009,7 +1184,15 @@ static int merge_boot_template(const byte *target_sector, const byte *template_s
     }
 
     memcpy(out_sector, template_sector, SECTOR_SIZE);
-    memcpy(out_sector + 3, target_sector + 3, offset - 3);
+    if (is_fat32_bpb(target_sector) && offset >= 90) {
+        /* 34h-3Fh are reserved in a FAT32 BPB, and stay the template's:
+           DR-DOS 8.0's loader keeps the name of the file it loads,
+           "IBMBIO  COM", there. */
+        memcpy(out_sector + 3, target_sector + 3, 0x34 - 3);
+        memcpy(out_sector + 0x40, target_sector + 0x40, offset - 0x40);
+    } else {
+        memcpy(out_sector + 3, target_sector + 3, offset - 3);
+    }
     out_sector[510] = 0x55;
     out_sector[511] = 0xAA;
     return 1;
@@ -1073,6 +1256,100 @@ static void prepare_abs_packet(dword logical_sector, const byte *sector)
     abs_packet.buffer_offset = (word)(unsigned)sector;
     abs_packet.buffer_segment = (word)data_segment;
 }
+
+/* MS-DOS 7 and later drop a direct write to a drive that has not been
+   locked first: INT 21h AX=7305h comes back with carry clear and the
+   sector unchanged (measured under MS-DOS 8.0). So the target is locked
+   (440Dh CX=084Ah, level 0) before the first write and let go at exit.
+   Older DOS and DR-DOS 8.0, which reports version 6, have no such rule.
+   Returns 0, or the DOS error if the lock is refused. */
+static int locked_drive = 0;        /* 1 = A:, 0 = none */
+static int unlock_registered = 0;
+
+static void dos_unlock_target(void)
+{
+    unsigned drive_num = (unsigned)locked_drive;
+
+    if (locked_drive == 0) {
+        return;
+    }
+    _asm {
+        mov ax, 440dh
+        mov bx, drive_num
+        mov cx, 086ah
+        int 21h
+    }
+    locked_drive = 0;
+}
+
+static int dos_lock_for_write(char drive)
+{
+    unsigned drive_num = (unsigned)(toupper((unsigned char)drive) - 'A' + 1);
+    unsigned result = 0;
+    unsigned failed = 0;
+
+    if (locked_drive == (int)drive_num || dos_major_version() < 7) {
+        return 0;
+    }
+    dos_unlock_target();
+    _asm {
+        mov ax, 440dh
+        mov bx, drive_num       /* BL = drive, BH = 0: lock level 0 */
+        mov cx, 084ah
+        xor dx, dx
+        int 21h
+        mov result, ax
+        jnc lock_done
+        mov failed, 1
+lock_done:
+    }
+    if (failed) {
+        return result != 0 ? (int)result : -1;
+    }
+    if (!unlock_registered) {
+        atexit(dos_unlock_target);
+        unlock_registered = 1;
+    }
+    locked_drive = (int)drive_num;
+    return 0;
+}
+
+/* INT 21h AX=7305h, the extended absolute read/write of MS-DOS 7.1 and
+   later, for the packet prepare_abs_packet set up. Those versions refuse
+   INT 25h/26h on a FAT32 volume and want this instead; it works on FAT12
+   and FAT16 too. DR-DOS 8.0 does not have it (it takes INT 25h/26h on
+   FAT32) and answers AX=7300h with carry clear, as any DOS without the
+   call does. Returns 0 on success, -2 if the call is not there, else the
+   DOS error. */
+static int dos_ext_abs_io(char drive, int write)
+{
+    unsigned drive_num = (unsigned)(toupper((unsigned char)drive) - 'A' + 1);
+    unsigned mode = write ? 1 : 0;
+    unsigned result = 0;
+    unsigned failed = 0;
+
+    _asm {
+        push ds
+        push si
+        mov ax, 7305h
+        mov cx, 0ffffh
+        mov dx, drive_num
+        mov si, mode
+        lea bx, abs_packet
+        stc
+        int 21h
+        pop si
+        mov result, ax
+        jnc ext_done
+        mov failed, 1
+ext_done:
+        pop ds
+    }
+    if (failed) {
+        return result != 0 ? (int)result : -1;
+    }
+    return result == 0x7300 ? -2 : 0;
+}
 #endif
 
 static int dos_read_logical_sector(char drive, dword logical_sector, byte *sector)
@@ -1088,6 +1365,13 @@ static int dos_read_logical_sector(char drive, dword logical_sector, byte *secto
     }
 
     prepare_abs_packet(logical_sector, sector);
+
+    if (dos_major >= 7) {
+        int ext = dos_ext_abs_io(drive, 0);
+        if (ext != -2) {
+            return ext;
+        }
+    }
 
     if (dos_major >= 4) {
         _asm {
@@ -1141,6 +1425,17 @@ static int dos_write_logical_sector(char drive, dword logical_sector, const byte
     }
 
     prepare_abs_packet(logical_sector, sector);
+
+    if (dos_major >= 7) {
+        int ext = dos_lock_for_write(drive);
+        if (ext != 0) {
+            return ext;
+        }
+        ext = dos_ext_abs_io(drive, 1);
+        if (ext != -2) {
+            return ext;
+        }
+    }
 
     if (dos_major >= 4) {
         _asm {
@@ -2494,6 +2789,83 @@ static int write_target_boot_sector(const Options *opt, const byte *sector)
     return 1;
 }
 
+/* /BOOTSRC: one sector, or the first three of a FAT32 volume (boot
+   sector, free space sector, second loader sector), of which the free
+   space sector is the volume's own business and is not used. */
+static int read_boot_template(const char *path)
+{
+    FILE *f = fopen(path, "rb");
+    size_t n0, n1 = 0, n2 = 0;
+    int extra;
+
+    have_boot_source2 = 0;
+    if (f == NULL) {
+        fprintf(stderr, "ANYSYS: cannot open %s: %s\n", path, strerror(errno));
+        return 0;
+    }
+    n0 = fread(boot_source, 1, SECTOR_SIZE, f);
+    extra = fgetc(f);
+    if (extra != EOF) {
+        boot_source2[0] = (byte)extra;
+        n1 = 1 + fread(boot_source2 + 1, 1, SECTOR_SIZE - 1, f);
+        n2 = fread(boot_source2, 1, SECTOR_SIZE, f);
+        extra = fgetc(f);
+    }
+    fclose(f);
+
+    if (n0 == SECTOR_SIZE && n1 == 0) {
+        return 1;
+    }
+    if (n0 == SECTOR_SIZE && n1 == SECTOR_SIZE && n2 == SECTOR_SIZE &&
+        extra == EOF && is_fat32_bpb(boot_source)) {
+        have_boot_source2 = 1;
+        return 1;
+    }
+    fprintf(stderr, "ANYSYS: %s is not a 512 byte boot sector or a 1536 byte FAT32 one\n",
+            path);
+    return 0;
+}
+
+/* On FAT32 the loader may go on in sector 2, and sectors 0 to 2 have a
+   copy at the place the BPB names (6, as every FORMAT puts it). The
+   merged sector goes to the copy too; sector 2 and its copy take the
+   template's third sector when it has one. Nothing to do for FAT12/16,
+   or for a boot image file, which holds one sector. */
+static int write_fat32_extras(const Options *opt, const byte *target,
+                              const byte *merged)
+{
+    word backup;
+    int rc = 0;
+
+    if (!is_fat32_bpb(target) || opt->boot_image[0] != '\0') {
+        return 1;
+    }
+    backup = get_le_word(target + 50);
+    if (opt->dryrun) {
+        printf("Would write FAT32 loader sectors to %c:\\\n", opt->target_drive);
+        return 1;
+    }
+
+    if (have_boot_source2) {
+        rc = dos_write_logical_sector(opt->target_drive, 2, boot_source2);
+    }
+    if (rc == 0 && backup != 0 && backup != 0xFFFF &&
+        backup < get_le_word(target + 14)) {
+        rc = dos_write_logical_sector(opt->target_drive, backup, merged);
+        if (rc == 0 && have_boot_source2) {
+            rc = dos_write_logical_sector(opt->target_drive, (dword)backup + 2,
+                                          boot_source2);
+        }
+    }
+    if (rc != 0) {
+        fprintf(stderr, "ANYSYS: cannot write the FAT32 loader sectors to %c: (DOS error %d)\n",
+                opt->target_drive, rc);
+        return 0;
+    }
+    dos_flush_disk_buffers();
+    return 1;
+}
+
 static int handle_boot_sector(const Options *opt)
 {
     if (opt->dump_bs[0] != '\0') {
@@ -2536,7 +2908,7 @@ static int handle_boot_sector(const Options *opt)
     if (!read_target_boot_sector(opt, boot_current)) {
         return 0;
     }
-    if (!read_file_exact(opt->boot_source, boot_source, SECTOR_SIZE)) {
+    if (!read_boot_template(opt->boot_source)) {
         return 0;
     }
     if (!merge_boot_template(boot_current, boot_source, boot_merged)) {
@@ -2547,7 +2919,10 @@ static int handle_boot_sector(const Options *opt)
         printf("Installing boot code from %s with target BPB preserved\n",
                opt->boot_source);
     }
-    return write_target_boot_sector(opt, boot_merged);
+    if (!write_target_boot_sector(opt, boot_merged)) {
+        return 0;
+    }
+    return write_fat32_extras(opt, boot_current, boot_merged);
 }
 
 int main(int argc, char **argv)
